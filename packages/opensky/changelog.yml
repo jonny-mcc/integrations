@@ -4,3 +4,6 @@
     - description: Initial draft of the package
       type: enhancement
       link: https://github.com/jonny-mcc/integrations/pull/2
+    - description: Document OpenSky limits on commercial and operational use of the data
+      type: enhancement
+      link: https://github.com/jonny-mcc/integrations/pull/2

@@ -13,6 +13,33 @@ The OpenSky Network integration collects live and recent aircraft surveillance f
 
 A local dump1090 or tar1090 receiver is a different data source and is not collected here. The OpenSky Trino warehouse is also out of scope.
 
+### Data license
+
+This package is licensed under the Elastic License 2.0. The aircraft data it collects is not. OpenSky Network licenses that data under its [terms of use and data license agreement](https://opensky-network.org/about/terms-of-use). Those terms apply as soon as the agent stores a document.
+
+::::{warning}
+OpenSky authorizes use of the data only for non-profit research and non-profit education. A written license from OpenSky is required before either of the following:
+
+* Any use by a commercial or for-profit entity, including a government or military contractor, regardless of purpose.
+* Operational use of the REST API in a live product, service, or automated system. This includes internal use. It also applies when the organization is a non-profit or a government entity.
+
+A government entity may receive a research or education exemption, at OpenSky's discretion. That exemption does not cover operational API use.
+
+An Elastic Agent policy that polls the API is automated use. Do not deploy this integration for operations unless the organization holds the written license. Request one from [contact@opensky-network.org](mailto:contact@opensky-network.org).
+
+The [OpenSky FAQ](https://opensky-network.org/about/faq) describes free API use for personal and non-profit applications, and it asks commercial users to get consent before internal use beyond testing the data. Where the FAQ and the terms differ, follow the terms.
+::::
+
+OpenSky can refuse or revoke access. The data is provided as is. OpenSky does not warrant its accuracy, timeliness, completeness, reliability, or availability. The API is not a source of airport schedules, delays, or other commercial flight-plan data. OpenSky may block requests from cloud provider addresses.
+
+When you keep the documents in Elasticsearch:
+
+* Do not distribute them to anyone other than people in your organization who are working with you on the stated use. Another organization must request its own access from OpenSky.
+* Do not register extra OpenSky accounts to obtain more API credits.
+* Cite OpenSky in any paper, web page, or public presentation that uses the data: Matthias Schäfer, Martin Strohmeier, Vincent Lenders, Ivan Martinovic, and Matthias Wilhelm, "Bringing up OpenSky: A large-scale ADS-B sensor network for research," in Proceedings of the 13th ACM/IEEE International Conference on Information Processing in Sensor Networks (IPSN), April 2014. You can also cite "The OpenSky Network, https://opensky-network.org". Before you publish records that OpenSky has not anonymized, remove personally identifiable information, aircraft identifiers, and sensor locations.
+* Delete collected copies when the stated research ends, or when OpenSky ends access. You may keep them for a reasonable period when scientific reproducibility requires it.
+* A written license for commercial internal testing can include extra intellectual-property terms. Those terms are in section 6 of the OpenSky agreement. Changing them requires a written exemption from OpenSky.
+
 ### Compatibility
 {{/* Complete this section with information on what 3rd party software or hardware versions this integration is compatible with */}}
 This integration is compatible with OpenSky Network REST API documentation set 1.4.0. The API path is unversioned. Authentication is OAuth2 client credentials against the OpenSky Keycloak token endpoint. Anonymous access is not a supported configuration: flights and tracks require a client, and anonymous state history ignores the `time` parameter.
@@ -33,12 +60,13 @@ The OpenSky Network integration collects the following types:
 
 ### Supported use cases
 {{/* Add details on the use cases that can be enabled by using this integration. Explain why a user would want to install and use this integration. */}}
-Operators and researchers can search recent aircraft positions, callsigns, squawk codes, and estimated airport movements without running a receiver. Use a bounding box or an extra policy instance when a global state poll is larger than you need. Flight and track credits are separate from state credits, so those streams can run on their own intervals.
+Search recent aircraft positions, callsigns, squawk codes, and estimated airport movements without running a receiver. Do this only when the [data license](#data-license) allows it, or when you hold a written OpenSky license. Use a bounding box or an extra policy instance when a global state poll is larger than you need. Flight and track credits are separate from state credits, so those streams can run on their own intervals.
 
 ## What do I need to use this integration?
 {{/* List any Elastic or vendor-specific prerequisites needed before starting to install the integration. For example, Elastic self-managed or cloud deployment, or a vendor-specific credentials or accounts */}}
 * An Elastic deployment and an Elastic Agent enrolled in Fleet, or a standalone agent.
 * An OpenSky Network account with an API client (`client_id` and `client_secret`).
+* Permission under the [OpenSky terms](https://opensky-network.org/about/terms-of-use), or a written OpenSky license when the use is commercial or operational. See [Data license](#data-license).
 * Outbound HTTPS to `opensky-network.org` and `auth.opensky-network.org`.
 * Enough daily credits for the chosen interval and bounding box. A global `/states/all` call costs 4 state credits. The standard account refills 4,000 state credits per day.
 * For own-receiver state vectors, the account must own receivers. Otherwise `/states/own` returns HTTP 403.
@@ -65,7 +93,7 @@ This should be specific to the steps needed to set up the 3rd party system to se
 */}}
 1. Create an OpenSky Network account and open the account page.
 2. Create an API client and record the client ID and client secret.
-3. Accept the OpenSky terms of use. No OAuth scope is required.
+3. Accept the OpenSky terms of use. If the use is commercial or operational, obtain a written license first. No OAuth scope is required.
 
 #### Vendor resources
 {{/* Add vendor documentation links that are specific to the steps needed to set up the vendor system to send data to Elastic. Exclude this section if no vendor setup links are available. */}}
