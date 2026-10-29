@@ -368,6 +368,7 @@ body:
         - OpenAI [packages/openai]
         - OpenCanary [packages/opencanary]
         - OpenCTI [packages/ti_opencti]
+        - OpenSky Network [packages/opensky]
         - OpenTelemetry Collector Internal Telemetry [packages/otel_collector_internal_telemetry]
         - OpenTelemetry Profiling [packages/profiling_otel]
         - Oracle OpenTelemetry Assets [packages/oracle_otel]
