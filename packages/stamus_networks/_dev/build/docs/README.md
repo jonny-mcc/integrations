@@ -19,12 +19,14 @@ Stamus Tier 3 license. The `alerts` data stream otherwise works with the lower T
 
 ### How it works
 
-This integration polls the CNCS REST API on a configurable interval using the `cel` input. The
-`alerts` data stream retrieves Suricata IDS/IPS alert events and Stamus DoC/DoPV correlation
-records with a persisted time-range cursor (`from_date`/`to_date`).
+This integration polls the CNCS REST API on a configurable interval using the `cel` input. Each
+data stream retrieves its own Suricata `event_type` from the same `events_tail` endpoint with a
+persisted time-range cursor (`from_date`/`to_date`). The `alerts` data stream additionally
+interleaves a second `event_type: stamus` phase in the same worklist; `anomaly` and `smb_insights`
+each poll a single `event_type`.
 
-Geolocation and ASN fields (`source.geo`, `destination.geo`, `source.as`, `destination.as`) on the
-`alerts` data stream are derived by this integration's ingest pipeline using Elasticsearch's
+Geolocation and ASN fields (`source.geo`, `destination.geo`, `source.as`, `destination.as`) on all
+three data streams are derived by this integration's ingest pipelines using Elasticsearch's
 built-in GeoLite2 databases against the event's source/destination IP addresses — Stamus Clear
 NDR does not supply its own geolocation data for these events.
 
@@ -37,6 +39,13 @@ The Stamus Networks integration collects the following data streams:
   stamus`) when present, plus Sightings (newly discovered asset attributes), Outlier Alert
   (`stamus_novel`), and File Identification classification tags that decorate alert/stamus
   documents.
+* **anomaly**: Suricata protocol/parsing anomaly events (`event_type: anomaly`) — unexpected
+  protocol behavior flagged by the Suricata engine itself (for example, a protocol mismatch
+  between directions of a flow, or a malformed decode at a given layer), as distinct from a
+  signature-match alert.
+* **smb_insights**: Suricata SMB protocol insight/correlation records (`event_type: smb_insights`)
+  — per-flow tracking counters for SMB share access and SMB status codes observed on the
+  connection.
 
 ### Supported use cases
 
@@ -81,14 +90,15 @@ Add the **Stamus Networks** integration in Fleet and configure:
   (no trailing `/rest/`).
 * **API Token** — the token generated above.
 
-The `alerts` data stream uses these two settings. It also exposes its own **Interval** (polling
-frequency, default 5m) and **Initial lookback** (default 24h).
+All three data streams (`alerts`, `anomaly`, `smb_insights`) use these two settings. Each also
+exposes its own **Interval** (polling frequency, default 5m) and **Initial lookback** (default
+24h), configured independently per data stream.
 
 ### Validation
 
-After enabling the integration, generate or wait for Suricata alert traffic on your monitored
-network, then check **Discover** in Kibana for documents in the
-`logs-stamus_networks.alerts-*` data stream.
+After enabling the integration, generate or wait for Suricata traffic on your monitored network,
+then check **Discover** in Kibana for documents in the `logs-stamus_networks.alerts-*`,
+`logs-stamus_networks.anomaly-*`, and `logs-stamus_networks.smb_insights-*` data streams.
 
 ## Troubleshooting
 
@@ -97,13 +107,17 @@ network, then check **Discover** in Kibana for documents in the
 - Alert and stamus documents are retrieved from `/rest/rules/es/events_tail/`. This integration is tested against a full Stamus Clear NDR server, where that endpoint returns full alert documents and `event_type: stamus` correlation records. Pagination is a DRF `{count, next, previous, results}` envelope. A full Clear NDR server honors `page`. Community Clear NDR honors `page_number`. The collector sends both parameters set to the same value, and continues while `next` is non-null.
 - Declaration of Compromise / Policy Violation records (`event_type: stamus`) require a Stamus Clear NDR **Tier 3** license and are returned on a full Clear NDR server. If stamus events are missing, confirm the license tier. A non-retryable error on the `stamus` phase advances to the next window; only a persistent error on the `alert` phase retries.
 - Beaconing detection fields (`beaconing_report.*`, `beaconing_statistics.*`) are mapped but have not been observed in any sample data used to build this integration. Treat them as unverified end-to-end even though the fields are vendor-documented.
+- `anomaly` and `smb_insights` record shapes have not yet been verified against a live Stamus Clear NDR server response; they were built from documented Suricata `eve.json` conventions for these event types. Field names/nesting may need adjustment once confirmed against a live instance.
+- `smb_insights.trackers.share.counters` and `smb_insights.trackers.status.counters` are mapped as `flattened` fields because their keys (SMB share paths, SMB status codes) are data-dependent and unbounded in cardinality — mapping each distinct key as its own field would cause a mapping explosion. `flattened` fields support exact-match term queries but not full per-subfield type control or range aggregations.
+- Unlike `alerts` (which advances past a persistent error on its secondary `stamus` phase but retries forever on its primary `alert` phase), both `anomaly` and `smb_insights` retry forever on any error, transport-level or HTTP-status, since each has only a single phase with no fallback.
 - `flow_id` precision: `flow_id` is delivered by the API as a large integer (commonly >= 2^53 in production) and is mapped as `keyword` because it is an opaque correlation key, not a metric. The CEL program parses the raw API response with `decode_json_string_numbers()`. This function preserves the exact text of every JSON number, including `flow_id`, before the program re-emits the response through `encode_json()`. As a result, `flow_id` round-trips through this integration with no precision loss, even above 2^53. An earlier version rewrote `flow_id` to a quoted JSON string before a plain `decode_json()` call by using a CEL `regexp:` stream-config block. That mechanism caused Elastic Agent to silently fail to schedule a component for this input on Elastic Agent 9.5.5, so it was removed. `decode_json_string_numbers()` requires no stream-config changes and does not reintroduce that failure mode.
 
 ## Performance and scaling
 
-The `alerts` data stream polls `events_tail` once per interval. The default interval is 5m and the
-default initial lookback is 24h. `collection_delay` (default 1m) keeps the cursor behind now so
-alerts that become searchable slightly after their own timestamp are not skipped.
+Each data stream polls `events_tail` once per interval, independently of the others. The default
+interval is 5m and the default initial lookback is 24h for all three data streams. `collection_delay`
+(default 1m) keeps the cursor behind now so events that become searchable slightly after their own
+timestamp are not skipped.
 
 For more information on architectures that can be used for scaling this integration, check the [Ingest Architectures](https://www.elastic.co/docs/manage-data/ingest/ingest-reference-architectures) documentation.
 
@@ -116,7 +130,7 @@ For more information on architectures that can be used for scaling this integrat
 ### API usage
 
 These APIs are used with this integration:
-* `GET /rest/rules/es/events_tail/` — alert and stamus (Declaration of Compromise/Policy Violation) events for the `alerts` data stream.
+* `GET /rest/rules/es/events_tail/` — alert and stamus (Declaration of Compromise/Policy Violation) events for the `alerts` data stream, anomaly events for the `anomaly` data stream, and SMB insight records for the `smb_insights` data stream (filtered by `qfilter=event_type:<alert|stamus|anomaly|smb_insights>`).
 
 See the [REST API documentation](https://docs.stamus-networks.com/42.2.0/developer-corner/rest-api.html) for authentication, pagination, and filtering details.
 
@@ -149,6 +163,34 @@ Sightings, Outlier Alert, and File Identification classification tags.
 ##### alerts sample event
 
 {{ event "alerts" }}
+
+#### anomaly
+
+The `anomaly` data stream provides Suricata protocol/parsing anomaly events (`event_type:
+anomaly`) from the Stamus Clear NDR Central Server REST API — unexpected protocol behavior
+flagged by the Suricata engine's own parsers, distinct from a signature-match alert.
+
+##### anomaly fields
+
+{{ fields "anomaly" }}
+
+##### anomaly sample event
+
+{{ event "anomaly" }}
+
+#### smb_insights
+
+The `smb_insights` data stream provides Suricata SMB protocol insight/correlation records
+(`event_type: smb_insights`) from the Stamus Clear NDR Central Server REST API — per-flow
+tracking counters for SMB share access and SMB status codes observed on the connection.
+
+##### smb_insights fields
+
+{{ fields "smb_insights" }}
+
+##### smb_insights sample event
+
+{{ event "smb_insights" }}
 
 {{ ilm }}
 

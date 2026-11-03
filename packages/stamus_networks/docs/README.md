@@ -20,12 +20,14 @@ Stamus Tier 3 license. The `alerts` data stream otherwise works with the lower T
 
 ### How it works
 
-This integration polls the CNCS REST API on a configurable interval using the `cel` input. The
-`alerts` data stream retrieves Suricata IDS/IPS alert events and Stamus DoC/DoPV correlation
-records with a persisted time-range cursor (`from_date`/`to_date`).
+This integration polls the CNCS REST API on a configurable interval using the `cel` input. Each
+data stream retrieves its own Suricata `event_type` from the same `events_tail` endpoint with a
+persisted time-range cursor (`from_date`/`to_date`). The `alerts` data stream additionally
+interleaves a second `event_type: stamus` phase in the same worklist; `anomaly` and `smb_insights`
+each poll a single `event_type`.
 
-Geolocation and ASN fields (`source.geo`, `destination.geo`, `source.as`, `destination.as`) on the
-`alerts` data stream are derived by this integration's ingest pipeline using Elasticsearch's
+Geolocation and ASN fields (`source.geo`, `destination.geo`, `source.as`, `destination.as`) on all
+three data streams are derived by this integration's ingest pipelines using Elasticsearch's
 built-in GeoLite2 databases against the event's source/destination IP addresses — Stamus Clear
 NDR does not supply its own geolocation data for these events.
 
@@ -38,6 +40,13 @@ The Stamus Networks integration collects the following data streams:
   stamus`) when present, plus Sightings (newly discovered asset attributes), Outlier Alert
   (`stamus_novel`), and File Identification classification tags that decorate alert/stamus
   documents.
+* **anomaly**: Suricata protocol/parsing anomaly events (`event_type: anomaly`) — unexpected
+  protocol behavior flagged by the Suricata engine itself (for example, a protocol mismatch
+  between directions of a flow, or a malformed decode at a given layer), as distinct from a
+  signature-match alert.
+* **smb_insights**: Suricata SMB protocol insight/correlation records (`event_type: smb_insights`)
+  — per-flow tracking counters for SMB share access and SMB status codes observed on the
+  connection.
 
 ### Supported use cases
 
@@ -82,14 +91,15 @@ Add the **Stamus Networks** integration in Fleet and configure:
   (no trailing `/rest/`).
 * **API Token** — the token generated above.
 
-The `alerts` data stream uses these two settings. It also exposes its own **Interval** (polling
-frequency, default 5m) and **Initial lookback** (default 24h).
+All three data streams (`alerts`, `anomaly`, `smb_insights`) use these two settings. Each also
+exposes its own **Interval** (polling frequency, default 5m) and **Initial lookback** (default
+24h), configured independently per data stream.
 
 ### Validation
 
-After enabling the integration, generate or wait for Suricata alert traffic on your monitored
-network, then check **Discover** in Kibana for documents in the
-`logs-stamus_networks.alerts-*` data stream.
+After enabling the integration, generate or wait for Suricata traffic on your monitored network,
+then check **Discover** in Kibana for documents in the `logs-stamus_networks.alerts-*`,
+`logs-stamus_networks.anomaly-*`, and `logs-stamus_networks.smb_insights-*` data streams.
 
 ## Troubleshooting
 
@@ -98,13 +108,17 @@ network, then check **Discover** in Kibana for documents in the
 - Alert and stamus documents are retrieved from `/rest/rules/es/events_tail/`. This integration is tested against a full Stamus Clear NDR server, where that endpoint returns full alert documents and `event_type: stamus` correlation records. Pagination is a DRF `{count, next, previous, results}` envelope. A full Clear NDR server honors `page`. Community Clear NDR honors `page_number`. The collector sends both parameters set to the same value, and continues while `next` is non-null.
 - Declaration of Compromise / Policy Violation records (`event_type: stamus`) require a Stamus Clear NDR **Tier 3** license and are returned on a full Clear NDR server. If stamus events are missing, confirm the license tier. A non-retryable error on the `stamus` phase advances to the next window; only a persistent error on the `alert` phase retries.
 - Beaconing detection fields (`beaconing_report.*`, `beaconing_statistics.*`) are mapped but have not been observed in any sample data used to build this integration. Treat them as unverified end-to-end even though the fields are vendor-documented.
+- `anomaly` and `smb_insights` record shapes have not yet been verified against a live Stamus Clear NDR server response; they were built from documented Suricata `eve.json` conventions for these event types. Field names/nesting may need adjustment once confirmed against a live instance.
+- `smb_insights.trackers.share.counters` and `smb_insights.trackers.status.counters` are mapped as `flattened` fields because their keys (SMB share paths, SMB status codes) are data-dependent and unbounded in cardinality — mapping each distinct key as its own field would cause a mapping explosion. `flattened` fields support exact-match term queries but not full per-subfield type control or range aggregations.
+- Unlike `alerts` (which advances past a persistent error on its secondary `stamus` phase but retries forever on its primary `alert` phase), both `anomaly` and `smb_insights` retry forever on any error, transport-level or HTTP-status, since each has only a single phase with no fallback.
 - `flow_id` precision: `flow_id` is delivered by the API as a large integer (commonly >= 2^53 in production) and is mapped as `keyword` because it is an opaque correlation key, not a metric. The CEL program parses the raw API response with `decode_json_string_numbers()`. This function preserves the exact text of every JSON number, including `flow_id`, before the program re-emits the response through `encode_json()`. As a result, `flow_id` round-trips through this integration with no precision loss, even above 2^53. An earlier version rewrote `flow_id` to a quoted JSON string before a plain `decode_json()` call by using a CEL `regexp:` stream-config block. That mechanism caused Elastic Agent to silently fail to schedule a component for this input on Elastic Agent 9.5.5, so it was removed. `decode_json_string_numbers()` requires no stream-config changes and does not reintroduce that failure mode.
 
 ## Performance and scaling
 
-The `alerts` data stream polls `events_tail` once per interval. The default interval is 5m and the
-default initial lookback is 24h. `collection_delay` (default 1m) keeps the cursor behind now so
-alerts that become searchable slightly after their own timestamp are not skipped.
+Each data stream polls `events_tail` once per interval, independently of the others. The default
+interval is 5m and the default initial lookback is 24h for all three data streams. `collection_delay`
+(default 1m) keeps the cursor behind now so events that become searchable slightly after their own
+timestamp are not skipped.
 
 For more information on architectures that can be used for scaling this integration, check the [Ingest Architectures](https://www.elastic.co/docs/manage-data/ingest/ingest-reference-architectures) documentation.
 
@@ -142,7 +156,7 @@ To collect logs via API endpoint, configure the following parameters:
 ### API usage
 
 These APIs are used with this integration:
-* `GET /rest/rules/es/events_tail/` — alert and stamus (Declaration of Compromise/Policy Violation) events for the `alerts` data stream.
+* `GET /rest/rules/es/events_tail/` — alert and stamus (Declaration of Compromise/Policy Violation) events for the `alerts` data stream, anomaly events for the `anomaly` data stream, and SMB insight records for the `smb_insights` data stream (filtered by `qfilter=event_type:<alert|stamus|anomaly|smb_insights>`).
 
 See the [REST API documentation](https://docs.stamus-networks.com/42.2.0/developer-corner/rest-api.html) for authentication, pagination, and filtering details.
 
@@ -424,6 +438,339 @@ An example event for `alerts` looks as following:
     "tags": [
         "forwarded",
         "stamus_networks-alerts"
+    ]
+}
+```
+
+#### anomaly
+
+The `anomaly` data stream provides Suricata protocol/parsing anomaly events (`event_type:
+anomaly`) from the Stamus Clear NDR Central Server REST API — unexpected protocol behavior
+flagged by the Suricata engine's own parsers, distinct from a signature-match alert.
+
+##### anomaly fields
+
+**Exported fields**
+
+| Field | Description | Type |
+|---|---|---|
+| @timestamp | Date/time when the event originated. This is the date/time extracted from the event, typically representing when the event was generated by the source. If the event source has no original timestamp, this value is typically populated by the first time the event was received by the pipeline. Required field for all events. | date |
+| anomaly.code | Numeric Suricata anomaly event code. Preliminary -- not yet confirmed against a live Stamus/Suricata instance. | long |
+| anomaly.event | Specific Suricata anomaly event code name, for example "APPLAYER_MISMATCH_PROTOCOL_BOTH_DIRECTIONS." Preliminary -- exact enumeration not yet confirmed against a live Stamus/Suricata instance. | keyword |
+| anomaly.layer | Protocol layer at which the anomaly was detected, for example "decode," "stream," "proto_detect." Preliminary -- exact enumeration not yet confirmed against a live Stamus/Suricata instance. | keyword |
+| anomaly.type | Anomaly category, for example "applayer," "decode," "stream." Preliminary -- exact enumeration not yet confirmed against a live Stamus/Suricata instance. | keyword |
+| data_stream.dataset | The field can contain anything that makes sense to signify the source of the data. Examples include `nginx.access`, `prometheus`, `endpoint` etc. For data streams that otherwise fit, but that do not have dataset set we use the value "generic" for the dataset value. `event.dataset` should have the same value as `data_stream.dataset`. Beyond the Elasticsearch data stream naming criteria noted above, the `dataset` value has additional restrictions:   \* Must not contain `-`   \* No longer than 100 characters | constant_keyword |
+| data_stream.namespace | A user defined namespace. Namespaces are useful to allow grouping of data. Many users already organize their indices this way, and the data stream naming scheme now provides this best practice as a default. Many users will populate this field with `default`. If no value is used, it falls back to `default`. Beyond the Elasticsearch index naming criteria noted above, `namespace` value has the additional restrictions:   \* Must not contain `-`   \* No longer than 100 characters | constant_keyword |
+| data_stream.type | An overarching type for the data stream. Currently allowed values are "logs" and "metrics". We expect to also add "traces" and "synthetics" in the near future. | constant_keyword |
+| destination.geo.country_iso_code | Country ISO code. | keyword |
+| destination.geo.country_name | Country name. | keyword |
+| destination.ip | IP address of the destination (IPv4 or IPv6). | ip |
+| destination.port | Port of the destination. | long |
+| error.message | Error message. | match_only_text |
+| event.category | This is one of four ECS Categorization Fields, and indicates the second level in the ECS category hierarchy. `event.category` represents the "big buckets" of ECS categories. For example, filtering on `event.category:process` yields all events relating to process activity. This field is closely related to `event.type`, which is used as a subcategory. This field is an array. This will allow proper categorization of some events that fall in multiple categories. | keyword |
+| event.dataset | Name of the dataset. If an event source publishes more than one type of log or events (e.g. access log, error log), the dataset is used to specify which one the event comes from. It's recommended but not required to start the dataset name with the module name, followed by a dot, then the dataset name. | constant_keyword |
+| event.kind | This is one of four ECS Categorization Fields, and indicates the highest level in the ECS category hierarchy. `event.kind` gives high-level information about what type of information the event contains, without being specific to the contents of the event. For example, values of this field distinguish alert events from metric events. The value of this field can be used to inform how these kinds of events should be handled. They may warrant different retention, different access control, it may also help understand whether the data is coming in at a regular interval or not. | keyword |
+| event.module | Name of the module this data is coming from. If your monitoring agent supports the concept of modules or plugins to process events of a given source (e.g. Apache logs), `event.module` should contain the name of this module. | constant_keyword |
+| event.original | Raw text message of entire event. Used to demonstrate log integrity or where the full log message (before splitting it up in multiple parts) may be required, e.g. for reindex. This field is not indexed and doc_values are disabled. It cannot be searched, but it can be retrieved from `_source`. If users wish to override this and index this field, please see `Field data types` in the `Elasticsearch Reference`. | keyword |
+| event.type | This is one of four ECS Categorization Fields, and indicates the third level in the ECS category hierarchy. `event.type` represents a categorization "sub-bucket" that, when used along with the `event.category` field values, enables filtering events down to a level appropriate for single visualization. This field is an array. This will allow proper categorization of some events that fall in multiple event types. | keyword |
+| flow_id | Suricata flow identifier. This field is the primary cross-event correlation key for tying an anomaly to its underlying flow or other alerts on the same flow. It is delivered as a large integer (commonly \>= 2^53, the float64 safe-integer ceiling) but treated as an opaque keyword, not a metric. The CEL program parses the raw response with decode_json_string_numbers(), which preserves the exact textual form of every JSON number before encode_json() re-emits the response, so flow_id round-trips without precision loss even above 2^53 (see the `alerts` data stream for the same treatment and its historical context). | keyword |
+| input.type | Type of Elastic Agent input. | keyword |
+| network.community_id | A hash of source and destination IPs and ports, as well as the protocol used in a communication. This is a tool-agnostic standard to identify flows. Learn more at https://github.com/corelight/community-id-spec. | keyword |
+| network.transport | Same as network.iana_number, but instead using the Keyword name of the transport layer (udp, tcp, ipv6-icmp, etc.) The field value must be normalized to lowercase for querying. | keyword |
+| related.ip | All of the IPs seen on your event. | ip |
+| source.geo.country_iso_code | Country ISO code. | keyword |
+| source.geo.country_name | Country name. | keyword |
+| source.ip | IP address of the source (IPv4 or IPv6). | ip |
+| source.port | Port of the source. | long |
+| tags | List of keywords used to tag each event. | keyword |
+
+
+##### anomaly sample event
+
+An example event for `anomaly` looks as following:
+
+```json
+{
+    "@timestamp": "2024-01-15T12:00:00.123Z",
+    "agent": {
+        "ephemeral_id": "55d409ec-9ac8-4a15-ac0e-05bd8c04e8e0",
+        "id": "4c57b167-21dd-41df-8184-d20717a1a27d",
+        "name": "elastic-agent-92488",
+        "type": "filebeat",
+        "version": "9.5.5"
+    },
+    "anomaly": {
+        "code": 24,
+        "event": "APPLAYER_MISMATCH_PROTOCOL_BOTH_DIRECTIONS",
+        "layer": "proto_detect",
+        "type": "applayer"
+    },
+    "data_stream": {
+        "dataset": "stamus_networks.anomaly",
+        "namespace": "61296",
+        "type": "logs"
+    },
+    "destination": {
+        "as": {
+            "number": 64502,
+            "organization": {
+                "name": "Documentation ASN"
+            }
+        },
+        "geo": {
+            "city_name": "Madrid",
+            "continent_name": "Europe",
+            "country_iso_code": "ES",
+            "country_name": "Spain",
+            "location": {
+                "coordinates": [
+                    -3.702500034123659,
+                    40.416389987803996
+                ],
+                "type": "Point"
+            },
+            "region_iso_code": "ES-M",
+            "region_name": "Madrid"
+        },
+        "ip": "203.0.113.20",
+        "port": 443
+    },
+    "ecs": {
+        "version": "9.5.0"
+    },
+    "elastic_agent": {
+        "id": "4c57b167-21dd-41df-8184-d20717a1a27d",
+        "snapshot": false,
+        "version": "9.5.5"
+    },
+    "event": {
+        "agent_id_status": "verified",
+        "category": [
+            "network"
+        ],
+        "dataset": "stamus_networks.anomaly",
+        "ingested": "2026-11-02T22:59:31Z",
+        "kind": "event",
+        "module": "stamus_networks",
+        "type": [
+            "protocol"
+        ]
+    },
+    "flow_id": "2019054435055803",
+    "input": {
+        "type": "cel"
+    },
+    "message": "APPLAYER_MISMATCH_PROTOCOL_BOTH_DIRECTIONS",
+    "network": {
+        "community_id": "1:ZiLtbOyTGDBP1F73hm1GNHOkSZw=",
+        "transport": "tcp"
+    },
+    "related": {
+        "ip": [
+            "198.51.100.10",
+            "203.0.113.20"
+        ]
+    },
+    "source": {
+        "as": {
+            "number": 64501,
+            "organization": {
+                "name": "Documentation ASN"
+            }
+        },
+        "geo": {
+            "city_name": "Amsterdam",
+            "continent_name": "Europe",
+            "country_iso_code": "NL",
+            "country_name": "Netherlands",
+            "location": {
+                "coordinates": [
+                    4.889689916744828,
+                    52.37403995823115
+                ],
+                "type": "Point"
+            },
+            "region_iso_code": "NL-NH",
+            "region_name": "North Holland"
+        },
+        "ip": "198.51.100.10",
+        "port": 51345
+    },
+    "tags": [
+        "forwarded",
+        "stamus_networks-anomaly"
+    ]
+}
+```
+
+#### smb_insights
+
+The `smb_insights` data stream provides Suricata SMB protocol insight/correlation records
+(`event_type: smb_insights`) from the Stamus Clear NDR Central Server REST API — per-flow
+tracking counters for SMB share access and SMB status codes observed on the connection.
+
+##### smb_insights fields
+
+**Exported fields**
+
+| Field | Description | Type |
+|---|---|---|
+| @timestamp | Date/time when the event originated. This is the date/time extracted from the event, typically representing when the event was generated by the source. If the event source has no original timestamp, this value is typically populated by the first time the event was received by the pipeline. Required field for all events. | date |
+| data_stream.dataset | The field can contain anything that makes sense to signify the source of the data. Examples include `nginx.access`, `prometheus`, `endpoint` etc. For data streams that otherwise fit, but that do not have dataset set we use the value "generic" for the dataset value. `event.dataset` should have the same value as `data_stream.dataset`. Beyond the Elasticsearch data stream naming criteria noted above, the `dataset` value has additional restrictions:   \* Must not contain `-`   \* No longer than 100 characters | constant_keyword |
+| data_stream.namespace | A user defined namespace. Namespaces are useful to allow grouping of data. Many users already organize their indices this way, and the data stream naming scheme now provides this best practice as a default. Many users will populate this field with `default`. If no value is used, it falls back to `default`. Beyond the Elasticsearch index naming criteria noted above, `namespace` value has the additional restrictions:   \* Must not contain `-`   \* No longer than 100 characters | constant_keyword |
+| data_stream.type | An overarching type for the data stream. Currently allowed values are "logs" and "metrics". We expect to also add "traces" and "synthetics" in the near future. | constant_keyword |
+| destination.geo.country_iso_code | Country ISO code. | keyword |
+| destination.geo.country_name | Country name. | keyword |
+| destination.ip | IP address of the destination (IPv4 or IPv6). | ip |
+| destination.port | Port of the destination. | long |
+| error.message | Error message. | match_only_text |
+| event.category | This is one of four ECS Categorization Fields, and indicates the second level in the ECS category hierarchy. `event.category` represents the "big buckets" of ECS categories. For example, filtering on `event.category:process` yields all events relating to process activity. This field is closely related to `event.type`, which is used as a subcategory. This field is an array. This will allow proper categorization of some events that fall in multiple categories. | keyword |
+| event.dataset | Name of the dataset. If an event source publishes more than one type of log or events (e.g. access log, error log), the dataset is used to specify which one the event comes from. It's recommended but not required to start the dataset name with the module name, followed by a dot, then the dataset name. | constant_keyword |
+| event.kind | This is one of four ECS Categorization Fields, and indicates the highest level in the ECS category hierarchy. `event.kind` gives high-level information about what type of information the event contains, without being specific to the contents of the event. For example, values of this field distinguish alert events from metric events. The value of this field can be used to inform how these kinds of events should be handled. They may warrant different retention, different access control, it may also help understand whether the data is coming in at a regular interval or not. | keyword |
+| event.module | Name of the module this data is coming from. If your monitoring agent supports the concept of modules or plugins to process events of a given source (e.g. Apache logs), `event.module` should contain the name of this module. | constant_keyword |
+| event.original | Raw text message of entire event. Used to demonstrate log integrity or where the full log message (before splitting it up in multiple parts) may be required, e.g. for reindex. This field is not indexed and doc_values are disabled. It cannot be searched, but it can be retrieved from `_source`. If users wish to override this and index this field, please see `Field data types` in the `Elasticsearch Reference`. | keyword |
+| event.type | This is one of four ECS Categorization Fields, and indicates the third level in the ECS category hierarchy. `event.type` represents a categorization "sub-bucket" that, when used along with the `event.category` field values, enables filtering events down to a level appropriate for single visualization. This field is an array. This will allow proper categorization of some events that fall in multiple event types. | keyword |
+| flow_id | Suricata flow identifier. This field is the primary cross-event correlation key for tying an smb_insights record to its underlying flow or other alerts/anomalies on the same flow. It is delivered as a large integer (commonly \>= 2^53, the float64 safe-integer ceiling) but treated as an opaque keyword, not a metric. The CEL program parses the raw response with decode_json_string_numbers(), which preserves the exact textual form of every JSON number before encode_json() re-emits the response, so flow_id round-trips without precision loss even above 2^53 (see the `alerts`/`anomaly` data streams for the same treatment and its historical context). | keyword |
+| input.type | Type of Elastic Agent input. | keyword |
+| network.community_id | A hash of source and destination IPs and ports, as well as the protocol used in a communication. This is a tool-agnostic standard to identify flows. Learn more at https://github.com/corelight/community-id-spec. | keyword |
+| network.transport | Same as network.iana_number, but instead using the Keyword name of the transport layer (udp, tcp, ipv6-icmp, etc.) The field value must be normalized to lowercase for querying. | keyword |
+| related.ip | All of the IPs seen on your event. | ip |
+| smb_insights.trackers.share.counters | SMB share access counters keyed by SMB share UNC path (for example `\\dc1.example.local\IPC$`), with access counts as values. | flattened |
+| smb_insights.trackers.status.counters | SMB status code counters keyed by SMB status code name (for example `STATUS_SUCCESS`, `STATUS_ACCESS_DENIED`), with occurrence counts as values. | flattened |
+| source.geo.country_iso_code | Country ISO code. | keyword |
+| source.geo.country_name | Country name. | keyword |
+| source.ip | IP address of the source (IPv4 or IPv6). | ip |
+| source.port | Port of the source. | long |
+| tags | List of keywords used to tag each event. | keyword |
+
+
+##### smb_insights sample event
+
+An example event for `smb_insights` looks as following:
+
+```json
+{
+    "@timestamp": "2024-01-15T12:00:00.123Z",
+    "agent": {
+        "ephemeral_id": "f5842bd0-3fa0-47e2-afd0-0806e151d65c",
+        "id": "5544bf3c-0d62-42cc-91a9-aed24e5a32b6",
+        "name": "elastic-agent-64954",
+        "type": "filebeat",
+        "version": "9.5.5"
+    },
+    "data_stream": {
+        "dataset": "stamus_networks.smb_insights",
+        "namespace": "81152",
+        "type": "logs"
+    },
+    "destination": {
+        "as": {
+            "number": 64502,
+            "organization": {
+                "name": "Documentation ASN"
+            }
+        },
+        "geo": {
+            "city_name": "Madrid",
+            "continent_name": "Europe",
+            "country_iso_code": "ES",
+            "country_name": "Spain",
+            "location": {
+                "coordinates": [
+                    -3.702500034123659,
+                    40.416389987803996
+                ],
+                "type": "Point"
+            },
+            "region_iso_code": "ES-M",
+            "region_name": "Madrid"
+        },
+        "ip": "203.0.113.20",
+        "port": 445
+    },
+    "ecs": {
+        "version": "9.5.0"
+    },
+    "elastic_agent": {
+        "id": "5544bf3c-0d62-42cc-91a9-aed24e5a32b6",
+        "snapshot": false,
+        "version": "9.5.5"
+    },
+    "event": {
+        "agent_id_status": "verified",
+        "category": [
+            "network"
+        ],
+        "dataset": "stamus_networks.smb_insights",
+        "ingested": "2026-11-03T00:14:28Z",
+        "kind": "event",
+        "module": "stamus_networks",
+        "type": [
+            "protocol"
+        ]
+    },
+    "flow_id": "2019054435055803",
+    "input": {
+        "type": "cel"
+    },
+    "network": {
+        "community_id": "1:3s4bLtZ7L/IIfo261jtm66SAl7Q=",
+        "transport": "tcp"
+    },
+    "related": {
+        "ip": [
+            "198.51.100.10",
+            "203.0.113.20"
+        ]
+    },
+    "smb_insights": {
+        "trackers": {
+            "share": {
+                "counters": {
+                    "\\\\dc1": {
+                        "example": {
+                            "local\\IPC$": "42",
+                            "local\\SYSVOL": "7"
+                        }
+                    }
+                }
+            },
+            "status": {
+                "counters": {
+                    "STATUS_ACCESS_DENIED": "1",
+                    "STATUS_SUCCESS": "48"
+                }
+            }
+        }
+    },
+    "source": {
+        "as": {
+            "number": 64501,
+            "organization": {
+                "name": "Documentation ASN"
+            }
+        },
+        "geo": {
+            "city_name": "Amsterdam",
+            "continent_name": "Europe",
+            "country_iso_code": "NL",
+            "country_name": "Netherlands",
+            "location": {
+                "coordinates": [
+                    4.889689916744828,
+                    52.37403995823115
+                ],
+                "type": "Point"
+            },
+            "region_iso_code": "NL-NH",
+            "region_name": "North Holland"
+        },
+        "ip": "198.51.100.10",
+        "port": 51345
+    },
+    "tags": [
+        "forwarded",
+        "stamus_networks-smb_insights"
     ]
 }
 ```

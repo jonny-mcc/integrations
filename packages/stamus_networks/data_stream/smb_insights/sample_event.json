@@ -1,0 +1,124 @@
+{
+    "@timestamp": "2024-01-15T12:00:00.123Z",
+    "agent": {
+        "ephemeral_id": "f5842bd0-3fa0-47e2-afd0-0806e151d65c",
+        "id": "5544bf3c-0d62-42cc-91a9-aed24e5a32b6",
+        "name": "elastic-agent-64954",
+        "type": "filebeat",
+        "version": "9.5.5"
+    },
+    "data_stream": {
+        "dataset": "stamus_networks.smb_insights",
+        "namespace": "81152",
+        "type": "logs"
+    },
+    "destination": {
+        "as": {
+            "number": 64502,
+            "organization": {
+                "name": "Documentation ASN"
+            }
+        },
+        "geo": {
+            "city_name": "Madrid",
+            "continent_name": "Europe",
+            "country_iso_code": "ES",
+            "country_name": "Spain",
+            "location": {
+                "coordinates": [
+                    -3.702500034123659,
+                    40.416389987803996
+                ],
+                "type": "Point"
+            },
+            "region_iso_code": "ES-M",
+            "region_name": "Madrid"
+        },
+        "ip": "203.0.113.20",
+        "port": 445
+    },
+    "ecs": {
+        "version": "9.5.0"
+    },
+    "elastic_agent": {
+        "id": "5544bf3c-0d62-42cc-91a9-aed24e5a32b6",
+        "snapshot": false,
+        "version": "9.5.5"
+    },
+    "event": {
+        "agent_id_status": "verified",
+        "category": [
+            "network"
+        ],
+        "dataset": "stamus_networks.smb_insights",
+        "ingested": "2026-11-03T00:14:28Z",
+        "kind": "event",
+        "module": "stamus_networks",
+        "type": [
+            "protocol"
+        ]
+    },
+    "flow_id": "2019054435055803",
+    "input": {
+        "type": "cel"
+    },
+    "network": {
+        "community_id": "1:3s4bLtZ7L/IIfo261jtm66SAl7Q=",
+        "transport": "tcp"
+    },
+    "related": {
+        "ip": [
+            "198.51.100.10",
+            "203.0.113.20"
+        ]
+    },
+    "smb_insights": {
+        "trackers": {
+            "share": {
+                "counters": {
+                    "\\\\dc1": {
+                        "example": {
+                            "local\\IPC$": "42",
+                            "local\\SYSVOL": "7"
+                        }
+                    }
+                }
+            },
+            "status": {
+                "counters": {
+                    "STATUS_ACCESS_DENIED": "1",
+                    "STATUS_SUCCESS": "48"
+                }
+            }
+        }
+    },
+    "source": {
+        "as": {
+            "number": 64501,
+            "organization": {
+                "name": "Documentation ASN"
+            }
+        },
+        "geo": {
+            "city_name": "Amsterdam",
+            "continent_name": "Europe",
+            "country_iso_code": "NL",
+            "country_name": "Netherlands",
+            "location": {
+                "coordinates": [
+                    4.889689916744828,
+                    52.37403995823115
+                ],
+                "type": "Point"
+            },
+            "region_iso_code": "NL-NH",
+            "region_name": "North Holland"
+        },
+        "ip": "198.51.100.10",
+        "port": 51345
+    },
+    "tags": [
+        "forwarded",
+        "stamus_networks-smb_insights"
+    ]
+}

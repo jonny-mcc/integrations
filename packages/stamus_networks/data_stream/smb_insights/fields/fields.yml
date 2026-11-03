@@ -1,0 +1,34 @@
+# Mapping-explosion decision (pipeline builder): `smb_insights.trackers.{share,status}.counters`
+# are `{key: count}` maps whose keys are dynamic, data-dependent values (SMB share UNC paths, SMB
+# status code names) rather than a fixed enum. Mapping them as explicit per-value fields would
+# cause unbounded Elasticsearch mapping explosion in production. Chosen approach: map each
+# `counters` leaf as Elasticsearch `flattened` (see `smb_insights.trackers` below), so the raw
+# `smb_insights.trackers` object from the source is renamed into place unchanged by the ingest
+# pipeline -- no restructuring script is needed. `share` and `status` themselves are kept as
+# fixed, known sub-objects (only two tracker categories observed in the mock data) so
+# per-category querying/filtering is preserved; only the dynamic counter keys inside each
+# category are flattened. This mirrors the established `flattened` convention used elsewhere in
+# this repo for dynamic-key vendor data (for example `akamai` siem `user_risk.trust`, `cef`
+# `ad`, `aws` `emr_metrics` `tags`).
+- name: flow_id
+  type: keyword
+  description: >-
+    Suricata flow identifier. This field is the primary cross-event correlation key for tying an smb_insights record to its underlying flow or other alerts/anomalies on the same flow. It is delivered as a large integer (commonly >= 2^53, the float64 safe-integer ceiling) but treated as an opaque keyword, not a metric. The CEL program parses the raw response with decode_json_string_numbers(), which preserves the exact textual form of every JSON number before encode_json() re-emits the response, so flow_id round-trips without precision loss even above 2^53 (see the `alerts`/`anomaly` data streams for the same treatment and its historical context).
+- name: smb_insights
+  type: group
+  description: >-
+    Suricata SMB protocol insight tracking/correlation detail (eve.json `smb_insights` object).
+  fields:
+    - name: trackers
+      type: group
+      description: >-
+        Per-category SMB tracker counters. Each tracker category below holds a `counters` map whose keys are dynamic, data-dependent values rather than a fixed enum -- mapped `flattened` to avoid unbounded mapping explosion. See the note above this field.
+      fields:
+        - name: share.counters
+          type: flattened
+          description: >-
+            SMB share access counters keyed by SMB share UNC path (for example `\\dc1.example.local\IPC$`), with access counts as values.
+        - name: status.counters
+          type: flattened
+          description: >-
+            SMB status code counters keyed by SMB status code name (for example `STATUS_SUCCESS`, `STATUS_ACCESS_DENIED`), with occurrence counts as values.

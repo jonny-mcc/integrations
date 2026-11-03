@@ -1,0 +1,7 @@
+{
+    "events": [
+        {
+            "message": "{\"event_type\": \"smb_insights\", \"timestamp\": \"2024-01-15T13:30:00.654321+0000\", \"src_ip\": \"198.51.100.12\", \"src_port\": 52345, \"dest_ip\": \"203.0.113.22\", \"dest_port\": 445, \"proto\": \"TCP\", \"flow_id\": 9007199254741337, \"smb_insights\": {\"trackers\": {\"share\": {\"counters\": {\"\\\\\\\\dc1.example.local\\\\NETLOGON\": 3}}, \"status\": {\"counters\": {\"STATUS_SUCCESS\": 3}}}}}"
+        }
+    ]
+}

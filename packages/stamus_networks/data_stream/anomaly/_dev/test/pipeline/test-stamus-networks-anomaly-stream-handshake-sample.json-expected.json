@@ -1,0 +1,85 @@
+{
+    "expected": [
+        {
+            "@timestamp": "2024-01-15T12:00:10.999Z",
+            "anomaly": {
+                "code": 31,
+                "event": "STREAM_3WHS_ACK_IN_WRONG_DIR",
+                "layer": "stream",
+                "type": "stream"
+            },
+            "destination": {
+                "as": {
+                    "number": 64502,
+                    "organization": {
+                        "name": "Documentation ASN"
+                    }
+                },
+                "geo": {
+                    "city_name": "Madrid",
+                    "continent_name": "Europe",
+                    "country_iso_code": "ES",
+                    "country_name": "Spain",
+                    "location": {
+                        "lat": 40.41639,
+                        "lon": -3.7025
+                    },
+                    "region_iso_code": "ES-M",
+                    "region_name": "Madrid"
+                },
+                "ip": "203.0.113.23",
+                "port": 22
+            },
+            "ecs": {
+                "version": "9.5.0"
+            },
+            "event": {
+                "category": [
+                    "network"
+                ],
+                "kind": "event",
+                "original": "{\"event_type\": \"anomaly\", \"timestamp\": \"2024-01-15T12:00:10.999999+0000\", \"src_ip\": \"198.51.100.13\", \"src_port\": 51347, \"dest_ip\": \"203.0.113.23\", \"dest_port\": 22, \"proto\": \"TCP\", \"flow_id\": 2019054435055805, \"anomaly\": {\"type\": \"stream\", \"event\": \"STREAM_3WHS_ACK_IN_WRONG_DIR\", \"layer\": \"stream\", \"code\": 31}}",
+                "type": [
+                    "protocol"
+                ]
+            },
+            "flow_id": "2019054435055805",
+            "message": "STREAM_3WHS_ACK_IN_WRONG_DIR",
+            "network": {
+                "community_id": "1:cNu+uqiTuXCac9/OU3zfaeiSpC8=",
+                "transport": "tcp"
+            },
+            "related": {
+                "ip": [
+                    "198.51.100.13",
+                    "203.0.113.23"
+                ]
+            },
+            "source": {
+                "as": {
+                    "number": 64501,
+                    "organization": {
+                        "name": "Documentation ASN"
+                    }
+                },
+                "geo": {
+                    "city_name": "Amsterdam",
+                    "continent_name": "Europe",
+                    "country_iso_code": "NL",
+                    "country_name": "Netherlands",
+                    "location": {
+                        "lat": 52.37404,
+                        "lon": 4.88969
+                    },
+                    "region_iso_code": "NL-NH",
+                    "region_name": "North Holland"
+                },
+                "ip": "198.51.100.13",
+                "port": 51347
+            },
+            "tags": [
+                "preserve_original_event"
+            ]
+        }
+    ]
+}

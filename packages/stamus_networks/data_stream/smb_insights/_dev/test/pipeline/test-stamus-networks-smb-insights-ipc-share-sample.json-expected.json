@@ -1,0 +1,94 @@
+{
+    "expected": [
+        {
+            "@timestamp": "2024-01-15T12:00:00.123Z",
+            "destination": {
+                "as": {
+                    "number": 64502,
+                    "organization": {
+                        "name": "Documentation ASN"
+                    }
+                },
+                "geo": {
+                    "city_name": "Madrid",
+                    "continent_name": "Europe",
+                    "country_iso_code": "ES",
+                    "country_name": "Spain",
+                    "location": {
+                        "lat": 40.41639,
+                        "lon": -3.7025
+                    },
+                    "region_iso_code": "ES-M",
+                    "region_name": "Madrid"
+                },
+                "ip": "203.0.113.20",
+                "port": 445
+            },
+            "ecs": {
+                "version": "9.5.0"
+            },
+            "event": {
+                "category": [
+                    "network"
+                ],
+                "kind": "event",
+                "original": "{\"event_type\": \"smb_insights\", \"timestamp\": \"2024-01-15T12:00:00.123456+0000\", \"src_ip\": \"198.51.100.10\", \"src_port\": 51345, \"dest_ip\": \"203.0.113.20\", \"dest_port\": 445, \"proto\": \"TCP\", \"flow_id\": 2019054435055803, \"smb_insights\": {\"trackers\": {\"share\": {\"counters\": {\"\\\\\\\\dc1.example.local\\\\IPC$\": 42, \"\\\\\\\\dc1.example.local\\\\SYSVOL\": 7}}, \"status\": {\"counters\": {\"STATUS_SUCCESS\": 48, \"STATUS_ACCESS_DENIED\": 1}}}}}",
+                "type": [
+                    "protocol"
+                ]
+            },
+            "flow_id": "2019054435055803",
+            "network": {
+                "community_id": "1:3s4bLtZ7L/IIfo261jtm66SAl7Q=",
+                "transport": "tcp"
+            },
+            "related": {
+                "ip": [
+                    "198.51.100.10",
+                    "203.0.113.20"
+                ]
+            },
+            "smb_insights": {
+                "trackers": {
+                    "share": {
+                        "counters": {
+                            "\\\\dc1.example.local\\IPC$": 42,
+                            "\\\\dc1.example.local\\SYSVOL": 7
+                        }
+                    },
+                    "status": {
+                        "counters": {
+                            "STATUS_ACCESS_DENIED": 1,
+                            "STATUS_SUCCESS": 48
+                        }
+                    }
+                }
+            },
+            "source": {
+                "as": {
+                    "number": 64501,
+                    "organization": {
+                        "name": "Documentation ASN"
+                    }
+                },
+                "geo": {
+                    "city_name": "Amsterdam",
+                    "continent_name": "Europe",
+                    "country_iso_code": "NL",
+                    "country_name": "Netherlands",
+                    "location": {
+                        "lat": 52.37404,
+                        "lon": 4.88969
+                    },
+                    "region_iso_code": "NL-NH",
+                    "region_name": "North Holland"
+                },
+                "ip": "198.51.100.10",
+                "port": 51345
+            },
+            "tags": [
+                "preserve_original_event"
+            ]
+        }
+    ]
+}

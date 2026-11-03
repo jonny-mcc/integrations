@@ -1,0 +1,25 @@
+- name: flow_id
+  type: keyword
+  description: >-
+    Suricata flow identifier. This field is the primary cross-event correlation key for tying an anomaly to its underlying flow or other alerts on the same flow. It is delivered as a large integer (commonly >= 2^53, the float64 safe-integer ceiling) but treated as an opaque keyword, not a metric. The CEL program parses the raw response with decode_json_string_numbers(), which preserves the exact textual form of every JSON number before encode_json() re-emits the response, so flow_id round-trips without precision loss even above 2^53 (see the `alerts` data stream for the same treatment and its historical context).
+- name: anomaly
+  type: group
+  description: >-
+    Suricata anomaly detection detail (eve.json `anomaly` object) -- rough, initial mapping. Field-level interpretation (ECS mapping, renaming, enrichment) is left to the ingest pipeline build step; this is a provisional inventory of the raw fields observed during CEL mito prototyping against a mocked API response.
+  fields:
+    - name: type
+      type: keyword
+      description: >-
+        Anomaly category, for example "applayer," "decode," "stream." Preliminary -- exact enumeration not yet confirmed against a live Stamus/Suricata instance.
+    - name: event
+      type: keyword
+      description: >-
+        Specific Suricata anomaly event code name, for example "APPLAYER_MISMATCH_PROTOCOL_BOTH_DIRECTIONS." Preliminary -- exact enumeration not yet confirmed against a live Stamus/Suricata instance.
+    - name: layer
+      type: keyword
+      description: >-
+        Protocol layer at which the anomaly was detected, for example "decode," "stream," "proto_detect." Preliminary -- exact enumeration not yet confirmed against a live Stamus/Suricata instance.
+    - name: code
+      type: long
+      description: >-
+        Numeric Suricata anomaly event code. Preliminary -- not yet confirmed against a live Stamus/Suricata instance.

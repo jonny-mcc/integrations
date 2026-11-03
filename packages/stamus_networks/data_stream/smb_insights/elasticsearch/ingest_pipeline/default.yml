@@ -1,0 +1,282 @@
+---
+# event_type is always "smb_insights" for this stream (single qfilter) and is dropped along
+# with the rest of `json` in cleanup. The nested `smb_insights` object (trackers.{share,status}.
+# counters) is Suricata EVE-native (not an alert/signature match), so it is relocated as-is to a
+# root-level `smb_insights.*` group rather than an ECS field -- there is no ECS equivalent for
+# SMB protocol insight tracking counters. See the sibling `alerts`/`anomaly` pipelines for the same
+# root-level, native-object-name convention (`alert.*`, `anomaly.*`, `stamus.*`, `discovery.*`).
+#
+# Mapping-explosion note: `smb_insights.trackers.share.counters` and
+# `smb_insights.trackers.status.counters` are `{key: count}` maps whose keys are dynamic,
+# data-dependent values (SMB share UNC paths, SMB status code names), not a fixed enum. Both
+# `counters` leaves are mapped as Elasticsearch `flattened` (see fields/fields.yml) rather than
+# exploded into per-value fields, so the raw `smb_insights.trackers` object from the source is
+# renamed into place unchanged -- no restructuring script is needed.
+description: >-
+  Pipeline for Stamus Networks Clear NDR SMB protocol insight tracking/correlation events. Parses
+  Suricata EVE-style smb_insights records, maps the network 5-tuple to ECS, and removes the
+  temporary json object.
+processors:
+  - set:
+      field: ecs.version
+      tag: set_ecs_version
+      value: '9.5.0'
+
+  # --- CEL input only ---
+  - remove:
+      field:
+        - organization
+        - division
+        - team
+      ignore_missing: true
+      if: ctx.organization instanceof String && ctx.division instanceof String && ctx.team instanceof String
+      tag: remove_agentless_tags
+      description: >-
+        Removes the fields added by Agentless as metadata, as they can collide with ECS fields.
+  - terminate:
+      tag: data_collection_error
+      if: ctx.error?.message != null && ctx.message == null && ctx.event?.original == null
+      description: error message set and no data to process.
+  # --- end CEL-only ---
+
+  - rename:
+      field: message
+      tag: rename_message_to_event_original
+      target_field: event.original
+      ignore_missing: true
+      description: >-
+        Renames the original `message` field to `event.original` to store a copy of the original
+        message. The `event.original` field is not touched if the document already has one.
+      if: ctx.event?.original == null
+  - remove:
+      field: message
+      tag: remove_message
+      ignore_missing: true
+      description: The `message` field is no longer required if the document has an `event.original` field.
+      if: ctx.event?.original != null
+
+  - json:
+      field: event.original
+      target_field: json
+      tag: parse_json
+      if: ctx.event?.original != null
+      description: Parses the raw Stamus/Suricata EVE-style JSON smb_insights document.
+      on_failure:
+        - append:
+            field: error.message
+            tag: append_error_parse_json
+            value: '{{{_ingest.on_failure_message}}}'
+
+  - date:
+      field: json.timestamp
+      target_field: '@timestamp'
+      tag: parse_timestamp
+      formats:
+        - ISO8601
+      if: ctx.json?.timestamp != null
+      on_failure:
+        - append:
+            field: error.message
+            tag: append_error_parse_timestamp
+            value: '{{{_ingest.on_failure_message}}}'
+
+  - rename:
+      field: json.flow_id
+      target_field: flow_id
+      tag: rename_flow_id
+      ignore_missing: true
+  - convert:
+      field: flow_id
+      type: string
+      tag: convert_flow_id_to_string
+      ignore_missing: true
+      description: >-
+        flow_id is mapped as keyword (an opaque correlation key, not a metric), but
+        the CEL program's decode_json_string_numbers() call preserves the exact textual
+        form of large JSON numbers before encode_json() re-emits the response -- this
+        cast only fixes the field's type to match the mapping (see the `alerts`/`anomaly`
+        data streams for the same treatment and its historical context).
+
+  - rename:
+      field: json.smb_insights
+      target_field: smb_insights
+      tag: rename_smb_insights_object
+      ignore_missing: true
+      description: >-
+        Suricata EVE `smb_insights` object -- relocated as-is, no ECS equivalent exists. The
+        `trackers.{share,status}.counters` sub-maps are mapped `flattened` in fields.yml, so no
+        key restructuring is required here.
+
+  ###
+  # Network 5-tuple and transport
+  ###
+  - rename:
+      field: json.src_ip
+      target_field: source.ip
+      tag: rename_src_ip
+      ignore_missing: true
+  - rename:
+      field: json.src_port
+      target_field: source.port
+      tag: rename_src_port
+      ignore_missing: true
+  - rename:
+      field: json.dest_ip
+      target_field: destination.ip
+      tag: rename_dest_ip
+      ignore_missing: true
+  - rename:
+      field: json.dest_port
+      target_field: destination.port
+      tag: rename_dest_port
+      ignore_missing: true
+  - rename:
+      field: json.proto
+      target_field: network.transport
+      tag: rename_proto_to_network_transport
+      ignore_missing: true
+  - lowercase:
+      field: network.transport
+      tag: lowercase_network_transport
+      ignore_missing: true
+      description: Suricata delivers `proto` upper-case (e.g. "TCP"); ECS convention is lower-case.
+
+  - community_id:
+      tag: compute_community_id_fallback
+      target_field: network.community_id
+      ignore_failure: true
+      if: ctx.network?.community_id == null
+      description: >-
+        smb_insights records carry no Stamus-supplied `community_id`; compute one from the
+        5-tuple above, same as the fallback in the `alerts`/`anomaly` pipelines.
+
+  ###
+  # ECS categorization (Pattern B — fewer than 5 mappings)
+  ###
+  - set:
+      field: event.kind
+      tag: set_event_kind
+      value: event
+      description: >-
+        smb_insights records are per-flow SMB protocol tracking/correlation counters -- periodic
+        telemetry about an established session, not itself a signature match or security
+        detection -- so this stream uses the general `event` kind, same as `anomaly`.
+  - append:
+      field: event.category
+      tag: append_event_category_network
+      value: network
+      allow_duplicates: false
+  - append:
+      field: event.type
+      tag: append_event_type_protocol
+      value: protocol
+      allow_duplicates: false
+      description: >-
+        smb_insights counters describe protocol-level session tracking detail, not an
+        access/connection lifecycle event and not a single success/failure outcome (the tracked
+        counters may include both success and denied status codes within one document), so
+        `event.outcome` is intentionally left unset.
+
+  ###
+  # Geo + ASN enrichment
+  ###
+  - geoip:
+      field: source.ip
+      target_field: source.geo
+      tag: geoip_source_ip
+      if: ctx.source?.ip != null
+      ignore_missing: true
+  - geoip:
+      field: destination.ip
+      target_field: destination.geo
+      tag: geoip_destination_ip
+      if: ctx.destination?.ip != null
+      ignore_missing: true
+  - geoip:
+      database_file: GeoLite2-ASN.mmdb
+      field: source.ip
+      target_field: source.as
+      tag: geoip_asn_source_ip
+      if: ctx.source?.ip != null
+      properties:
+        - asn
+        - organization_name
+      ignore_missing: true
+  - geoip:
+      database_file: GeoLite2-ASN.mmdb
+      field: destination.ip
+      target_field: destination.as
+      tag: geoip_asn_destination_ip
+      if: ctx.destination?.ip != null
+      properties:
+        - asn
+        - organization_name
+      ignore_missing: true
+  - rename:
+      field: source.as.asn
+      target_field: source.as.number
+      tag: rename_source_asn
+      ignore_missing: true
+  - rename:
+      field: source.as.organization_name
+      target_field: source.as.organization.name
+      tag: rename_source_as_org
+      ignore_missing: true
+  - rename:
+      field: destination.as.asn
+      target_field: destination.as.number
+      tag: rename_destination_asn
+      ignore_missing: true
+  - rename:
+      field: destination.as.organization_name
+      target_field: destination.as.organization.name
+      tag: rename_destination_as_org
+      ignore_missing: true
+
+  ###
+  # related.* enrichment
+  ###
+  - append:
+      field: related.ip
+      tag: append_related_ip_source
+      value: '{{{source.ip}}}'
+      allow_duplicates: false
+      if: ctx.source?.ip != null
+  - append:
+      field: related.ip
+      tag: append_related_ip_destination
+      value: '{{{destination.ip}}}'
+      allow_duplicates: false
+      if: ctx.destination?.ip != null
+
+  ###
+  # Cleanup
+  ###
+  - remove:
+      field: json
+      tag: remove_json_temp
+      ignore_missing: true
+  - append:
+      field: tags
+      tag: append_preserve_original_event
+      value: preserve_original_event
+      allow_duplicates: false
+      if: ctx.error?.message != null
+
+on_failure:
+  - append:
+      field: error.message
+      tag: append_pipeline_error_message
+      value: >-
+        Processor '{{{ _ingest.on_failure_processor_type }}}'
+        {{{#_ingest.on_failure_processor_tag}}}with tag '{{{ _ingest.on_failure_processor_tag }}}'
+        {{{/_ingest.on_failure_processor_tag}}}failed with message '{{{ _ingest.on_failure_message }}}'
+  - set:
+      field: event.kind
+      tag: set_pipeline_error_to_event_kind
+      value: pipeline_error
+  - append:
+      field: tags
+      tag: append_preserve_original_event_on_pipeline_error
+      value: preserve_original_event
+      allow_duplicates: false

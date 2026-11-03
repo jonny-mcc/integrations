@@ -1,0 +1,7 @@
+{
+    "events": [
+        {
+            "message": "{\"event_type\": \"anomaly\", \"timestamp\": \"2024-01-15T12:00:10.999999+0000\", \"src_ip\": \"198.51.100.13\", \"src_port\": 51347, \"dest_ip\": \"203.0.113.23\", \"dest_port\": 22, \"proto\": \"TCP\", \"flow_id\": 2019054435055805, \"anomaly\": {\"type\": \"stream\", \"event\": \"STREAM_3WHS_ACK_IN_WRONG_DIR\", \"layer\": \"stream\", \"code\": 31}}"
+        }
+    ]
+}

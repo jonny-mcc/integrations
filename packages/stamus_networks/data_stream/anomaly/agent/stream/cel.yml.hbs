@@ -1,0 +1,176 @@
+interval: {{interval}}
+resource.tracer:
+  enabled: {{enable_request_tracer}}
+  filename: "../../logs/cel/http-request-trace-*.ndjson"
+  maxbackups: 5
+{{#if proxy_url}}
+resource.proxy_url: {{proxy_url}}
+{{/if}}
+{{#if ssl}}
+resource.ssl: {{ssl}}
+{{/if}}
+{{#if http_client_timeout}}
+resource.timeout: {{http_client_timeout}}
+{{/if}}
+resource.url: {{url}}
+state:
+  api_token: {{api_token}}
+  page_size: {{page_size}}
+  initial_interval: {{initial_interval}}
+  collection_delay: {{collection_delay}}
+redact:
+  fields:
+    - api_token
+program: |-
+  // Stamus Networks anomaly: GET /rest/rules/es/events_tail/?qfilter=event_type:anomaly
+  //
+  // Same REST endpoint and DRF {count, next, previous, results} pagination envelope
+  // as the `alerts` data stream (see its cel.yml.hbs for the full endpoint
+  // rationale), but single-phase: this stream only ever queries
+  // qfilter=event_type:anomaly, so there is no phase field / phase-switch logic.
+  //
+  // Pagination is driven by `next` (non-null means more pages); a short/empty page
+  // is the fallback terminal signal if a real server ever omits `next`.
+  //
+  // collection_delay / from_date / to_date windowing logic mirrors `alerts`
+  // verbatim: `to_date` is this evaluation's `now` minus a safety margin
+  // (`collection_delay`) so that, by the time a window's `to_date` is queried,
+  // every anomaly timestamped at or before it has had time to become searchable.
+  // `from_date` only ever advances forward as the prior window's `to_date` once a
+  // window completes -- never revisited -- so the margin exists to avoid
+  // permanently skipping anomalies that become searchable just after their
+  // window's upper bound was already queried. The `max()` clamp on `to_date`'s
+  // default means a `collection_delay` increase on a running input produces an
+  // empty (zero-width) window on the first poll or two after the change, rather
+  // than an inverted one (to_date < from_date).
+  state.?cursor.from_date.orValue(
+    string(int(now - duration(state.collection_delay) - duration(state.initial_interval)) * 1000)
+  ).as(fromDate,
+    {
+      "page": int(state.?cursor.page.orValue(1)),
+      "from_date": fromDate,
+      "to_date": state.?cursor.to_date.orValue(
+        string(max(int(fromDate), int(now - duration(state.collection_delay)) * 1000))
+      ),
+    }.as(cur,
+      state.with(
+        // do_request() itself can return a CEL error (not an HTTP response) for a
+        // transport-level failure. is_error() applied directly to the (non-strict)
+        // `.as(resp, ...)` binding detects this before `resp.StatusCode` is ever
+        // accessed -- deliberately NOT wrapped in try() first, since try()
+        // immediately stringifies any error it is given, making is_error() on a
+        // try()'d value always false. Handled like any other retryable condition:
+        // "cursor": cur is preserved unmodified so the next evaluation retries the
+        // exact same page/window.
+        request(
+          "GET",
+          state.url.trim_right("/") + "/rest/rules/es/events_tail/?" + {
+            "qfilter": ["event_type:anomaly"],
+            "from_date": [cur.from_date],
+            "to_date": [cur.to_date],
+            "page_size": [string(int(state.page_size))],
+            "page": [string(cur.page)],
+            "page_number": [string(cur.page)],
+          }.format_query()
+        ).with(
+          {
+            "Header": {
+              "Authorization": ["Token " + state.api_token],
+              "Content-Type": ["application/json"],
+            },
+          }
+        ).do_request().as(resp,
+          is_error(resp) ?
+            {
+              "events": [
+                {
+                  "error": {
+                    "code": "transport_error",
+                    "id": "transport_error",
+                    "message": "GET /rest/rules/es/events_tail/: transport-level failure (timeout, connection reset, DNS failure, TLS handshake failure, etc.) before an HTTP response was received: " + try(resp, "error").error,
+                  },
+                },
+              ],
+              "cursor": cur,
+              "want_more": false,
+            }
+          : (resp.StatusCode == 200) ?
+            // flow_id is a large integer (>= 2^53 in production) that would lose
+            // precision through plain decode_json()'s float64 JSON layer.
+            // decode_json_string_numbers() preserves every JSON number's exact
+            // textual form so it round-trips losslessly through encode_json().
+            resp.Body.decode_json_string_numbers().as(body,
+              body.?results.orValue([]).map(e, {"message": e.encode_json()}).as(mapped,
+                (
+                  // Primary signal: DRF-style `next` field, non-null means more pages.
+                  // Fallback (if the envelope omits `next` entirely): a full page
+                  // suggests more data may follow; a short/empty page means stop.
+                  size(mapped) != 0 && (
+                    body.?next.hasValue() ?
+                      (body.?next.orValue(null) != null)
+                    :
+                      size(mapped) >= int(state.page_size)
+                  )
+                ) ?
+                  // More pages remain for the current window.
+                  {
+                    "events": (size(mapped) > 0) ? dyn(mapped) : dyn([{"retry": true}]),
+                    "cursor": cur.with({"page": cur.page + 1}),
+                    "want_more": true,
+                  }
+                :
+                  // Window exhausted -- advance to the next window (its from_date is
+                  // this window's to_date) and wait for the next poll interval.
+                  {
+                    "events": (size(mapped) > 0) ? dyn(mapped) : dyn([{"retry": true}]),
+                    "cursor": {"from_date": cur.to_date},
+                    "want_more": false,
+                  }
+              )
+            )
+          :
+            {
+              // List-form (not single-object) error: the CEL input runtime deletes
+              // the persisted cursor on a single-object "events" value (confirmed
+              // in x-pack/filebeat/input/cel/input.go), which would roll the cursor
+              // back to whatever was last known-good -- or wipe it outright on the
+              // very first evaluation. This is the sole data-collecting phase for
+              // this stream (unlike `alerts`, which has a lower-tier "stamus" phase
+              // it can permanently advance past), so every error here -- retryable
+              // or not -- retries the same window: "cursor": cur, unmodified.
+              "events": [
+                {
+                  "error": {
+                    "code": string(resp.StatusCode),
+                    "id": string(resp.Status),
+                    "message": "GET /rest/rules/es/events_tail/: " + (
+                      (size(resp.Body) != 0) ?
+                        string(resp.Body)
+                      :
+                        string(resp.Status) + " (" + string(resp.StatusCode) + ")"
+                    ),
+                  },
+                },
+              ],
+              "cursor": cur,
+              "want_more": false,
+            }
+        )
+      )
+    )
+  )
+tags:
+{{#if preserve_original_event}}
+  - preserve_original_event
+{{/if}}
+{{#each tags as |tag|}}
+  - {{escape_string tag}}
+{{/each}}
+{{#contains "forwarded" tags}}
+publisher_pipeline.disable_host: true
+{{/contains}}
+processors:
+- drop_event.when.equals.retry: true
+{{#if processors}}
+{{processors}}
+{{/if}}

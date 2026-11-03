@@ -1,0 +1,166 @@
+rules:
+  # --- event_type:anomaly, page 1 ---
+  # Single-phase worklist (unlike `alerts`, which interleaves event_type:alert and
+  # event_type:stamus): the anomaly data stream only ever queries
+  # qfilter=event_type:anomaly, so the mock models a plain time-windowed,
+  # paginated-within-window flow with no phase switching.
+  #
+  # Responses are consumed as a round-robin sequence by `elastic/stream`
+  # (`response := rule.Responses[count % len(rule.Responses)]`): the N-th request
+  # to this rule always gets `responses[N-1]`.
+  #
+  # req_num 1 (round 1 / window 1): 2 events, next page exists (non-null `next`).
+  # req_num 2 (round 2 / cursor-resume window, interval-driven): 1 event, terminal
+  #   (next: null) -- proves cursor persistence across the short test interval.
+  # req_num >=3 (all subsequent windows): terminal empty response -- the mock must
+  #   stop producing new events once the intended rounds have been served,
+  #   otherwise the advancing from_date/to_date window produces a brand-new
+  #   unique event on every poll and hit_count never stabilizes.
+  - path: /rest/rules/es/events_tail/
+    methods: ['GET']
+    query_params:
+      qfilter: 'event_type:anomaly'
+      page_number: '1'
+      page_size: '2'
+      from_date: "{fd:.*}"
+      to_date: "{td:.*}"
+    request_headers:
+      Authorization:
+        - 'Token test-token'
+      Content-Type:
+        - 'application/json'
+    responses:
+      - status_code: 200
+        headers:
+          Content-Type:
+            - 'application/json'
+        body: |
+          {"count": 3, "next": "http://{{ hostname }}:{{ env "PORT" }}/rest/rules/es/events_tail/?qfilter=event_type%3Aanomaly&from_date={{ .request.vars.fd }}&to_date={{ .request.vars.td }}&page_size=2&page_number=2", "previous": null, "results": [{"event_type": "anomaly", "timestamp": "2024-01-15T12:00:00.123456+0000", "src_ip": "198.51.100.10", "src_port": 51345, "dest_ip": "203.0.113.20", "dest_port": 443, "proto": "TCP", "flow_id": 2019054435055803, "anomaly": {"type": "applayer", "event": "APPLAYER_MISMATCH_PROTOCOL_BOTH_DIRECTIONS", "layer": "proto_detect", "code": 24}}, {"event_type": "anomaly", "timestamp": "2024-01-15T12:00:05.654321+0000", "src_ip": "198.51.100.11", "src_port": 51346, "dest_ip": "203.0.113.21", "dest_port": 53, "proto": "UDP", "flow_id": 2019054435055804, "anomaly": {"type": "decode", "event": "DECODER_EVENT_UDP_HLEN_INVALID", "layer": "decode", "code": 7}}]}
+      - status_code: 200
+        headers:
+          Content-Type:
+            - 'application/json'
+        body: |
+          {"count": 1, "next": null, "previous": null, "results": [{"event_type": "anomaly", "timestamp": "2024-01-15T13:30:00.654321+0000", "src_ip": "198.51.100.12", "src_port": 52345, "dest_ip": "203.0.113.22", "dest_port": 8080, "proto": "TCP", "flow_id": 9007199254741337, "anomaly": {"type": "applayer", "event": "APPLAYER_UNKNOWN_PROTOCOL_DETECTED", "layer": "proto_detect", "code": 18}}]}
+      # req_num >=3: terminal empty response (padding against round-robin wraparound).
+      # A real system-test run at interval: 2s within wait_for_data_timeout: 1m can
+      # make ~30 requests to this rule; padded generously to stay flat.
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+  # --- event_type:anomaly, page 2 (round 1 only; never requested again in round 2+) ---
+  - path: /rest/rules/es/events_tail/
+    methods: ['GET']
+    query_params:
+      qfilter: 'event_type:anomaly'
+      page_number: '2'
+      page_size: '2'
+      from_date: "{fd:.*}"
+      to_date: "{td:.*}"
+    request_headers:
+      Authorization:
+        - 'Token test-token'
+      Content-Type:
+        - 'application/json'
+    responses:
+      - status_code: 200
+        headers:
+          Content-Type:
+            - 'application/json'
+        body: |
+          {"count": 3, "next": null, "previous": "http://{{ hostname }}:{{ env "PORT" }}/rest/rules/es/events_tail/?qfilter=event_type%3Aanomaly&from_date={{ .request.vars.fd }}&to_date={{ .request.vars.td }}&page_size=2&page_number=1", "results": [{"event_type": "anomaly", "timestamp": "2024-01-15T12:00:10.999999+0000", "src_ip": "198.51.100.13", "src_port": 51347, "dest_ip": "203.0.113.23", "dest_port": 22, "proto": "TCP", "flow_id": 2019054435055805, "anomaly": {"type": "stream", "event": "STREAM_3WHS_ACK_IN_WRONG_DIR", "layer": "stream", "code": 31}}]}
+  # --- Regression guard: catch-all for any other events_tail anomaly request
+  # (e.g. missing/unmatched query params, or a cursor regression re-sending the
+  # initial-interval window instead of the persisted bookmark). Returns an
+  # oversized batch so hit_count assertions fail loudly. ---
+  - path: /rest/rules/es/events_tail/
+    methods: ['GET']
+    query_params:
+      qfilter: 'event_type:anomaly'
+    responses:
+      - status_code: 200
+        headers:
+          Content-Type:
+            - 'application/json'
+        body: |
+          {"count": 50, "next": null, "previous": null, "results": [
+            {"event_type": "anomaly", "timestamp": "2020-01-01T00:00:00Z", "anomaly": {"type": "regression", "event": "REGRESSION_GUARD_UNEXPECTED_REQUEST_SHAPE", "layer": "regression", "code": 9999}},
+            {"event_type": "anomaly", "timestamp": "2020-01-01T00:00:01Z", "anomaly": {"type": "regression", "event": "REGRESSION_GUARD_UNEXPECTED_REQUEST_SHAPE", "layer": "regression", "code": 9999}}
+          ]}

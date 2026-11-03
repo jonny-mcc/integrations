@@ -1,0 +1,20 @@
+wait_for_data_timeout: 1m
+input: cel
+service: stamus_networks-anomaly-mock
+vars:
+  url: http://{{Hostname}}:{{Port}}
+  api_token: test-token
+data_stream:
+  vars:
+    interval: 2s
+    initial_interval: 24h
+    page_size: 2
+# hit_count = 4, derived from the mock's two windows (see
+# _dev/deploy/docker/files/config-anomaly.yml):
+#   window 1 (round 1, full pagination): page 1 = 2 events, page 2 = 1 event = 3
+#   window 2 (round 2, interval-driven cursor resume): 1 event, terminal       = 1
+#   total = 4, stable thereafter (all later windows return an empty terminal
+#   page via the round-robin padding entries, so hit_count does not keep
+#   growing across the 1m test window).
+assert:
+  hit_count: 4

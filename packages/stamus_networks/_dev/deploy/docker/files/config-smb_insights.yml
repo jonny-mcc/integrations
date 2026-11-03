@@ -1,0 +1,162 @@
+rules:
+  # --- event_type:smb_insights, page 1 ---
+  # Single-phase worklist, same shape as `anomaly`: this data stream only ever
+  # queries qfilter=event_type:smb_insights, so the mock models a plain
+  # time-windowed, paginated-within-window flow with no phase switching.
+  #
+  # Responses are consumed as a round-robin sequence by `elastic/stream`
+  # (`response := rule.Responses[count % len(rule.Responses)]`): the N-th request
+  # to this rule always gets `responses[N-1]`.
+  #
+  # req_num 1 (round 1 / window 1): 2 events, next page exists (non-null `next`).
+  # req_num 2 (round 2 / cursor-resume window, interval-driven): 1 event, terminal
+  #   (next: null) -- proves cursor persistence across the short test interval.
+  # req_num >=3 (all subsequent windows): terminal empty response -- the mock must
+  #   stop producing new events once the intended rounds have been served,
+  #   otherwise the advancing from_date/to_date window produces a brand-new
+  #   unique event on every poll and hit_count never stabilizes.
+  #
+  # smb_insights records include a `smb_insights.trackers` sub-object whose keys
+  # are dynamic, data-dependent values (share paths, status codes) -- NOT a
+  # fixed enum. This is preliminary/reconstructed shape (not confirmed against a
+  # live Stamus instance); flagged for the pipeline builder to restructure
+  # (see fields/fields.yml comment) rather than mapped as explicit per-value
+  # fields.
+  - path: /rest/rules/es/events_tail/
+    methods: ['GET']
+    query_params:
+      qfilter: 'event_type:smb_insights'
+      page_number: '1'
+      page_size: '2'
+      from_date: "{fd:.*}"
+      to_date: "{td:.*}"
+    request_headers:
+      Authorization:
+        - 'Token test-token'
+      Content-Type:
+        - 'application/json'
+    responses:
+      - status_code: 200
+        headers:
+          Content-Type:
+            - 'application/json'
+        body: |
+          {"count": 3, "next": "http://{{ hostname }}:{{ env "PORT" }}/rest/rules/es/events_tail/?qfilter=event_type%3Asmb_insights&from_date={{ .request.vars.fd }}&to_date={{ .request.vars.td }}&page_size=2&page_number=2", "previous": null, "results": [{"event_type": "smb_insights", "timestamp": "2024-01-15T12:00:00.123456+0000", "src_ip": "198.51.100.10", "src_port": 51345, "dest_ip": "203.0.113.20", "dest_port": 445, "proto": "TCP", "flow_id": 2019054435055803, "smb_insights": {"trackers": {"share": {"counters": {"\\\\dc1.example.local\\IPC$": 42, "\\\\dc1.example.local\\SYSVOL": 7}}, "status": {"counters": {"STATUS_SUCCESS": 48, "STATUS_ACCESS_DENIED": 1}}}}}, {"event_type": "smb_insights", "timestamp": "2024-01-15T12:00:05.654321+0000", "src_ip": "198.51.100.11", "src_port": 51346, "dest_ip": "203.0.113.21", "dest_port": 445, "proto": "TCP", "flow_id": 2019054435055804, "smb_insights": {"trackers": {"share": {"counters": {"\\\\fs1.example.local\\Finance": 12}}, "status": {"counters": {"STATUS_SUCCESS": 12}}}}}]}
+      - status_code: 200
+        headers:
+          Content-Type:
+            - 'application/json'
+        body: |
+          {"count": 1, "next": null, "previous": null, "results": [{"event_type": "smb_insights", "timestamp": "2024-01-15T13:30:00.654321+0000", "src_ip": "198.51.100.12", "src_port": 52345, "dest_ip": "203.0.113.22", "dest_port": 445, "proto": "TCP", "flow_id": 9007199254741337, "smb_insights": {"trackers": {"share": {"counters": {"\\\\dc1.example.local\\NETLOGON": 3}}, "status": {"counters": {"STATUS_SUCCESS": 3}}}}}]}
+      # req_num >=3: terminal empty response (padding against round-robin wraparound).
+      # A real system-test run at interval: 2s within wait_for_data_timeout: 1m can
+      # make ~30 requests to this rule; padded generously to stay flat.
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+      - status_code: 200
+        body: '{"count": 0, "next": null, "previous": null, "results": []}'
+  # --- event_type:smb_insights, page 2 (round 1 only; never requested again in round 2+) ---
+  - path: /rest/rules/es/events_tail/
+    methods: ['GET']
+    query_params:
+      qfilter: 'event_type:smb_insights'
+      page_number: '2'
+      page_size: '2'
+      from_date: "{fd:.*}"
+      to_date: "{td:.*}"
+    request_headers:
+      Authorization:
+        - 'Token test-token'
+      Content-Type:
+        - 'application/json'
+    responses:
+      - status_code: 200
+        headers:
+          Content-Type:
+            - 'application/json'
+        body: |
+          {"count": 3, "next": null, "previous": "http://{{ hostname }}:{{ env "PORT" }}/rest/rules/es/events_tail/?qfilter=event_type%3Asmb_insights&from_date={{ .request.vars.fd }}&to_date={{ .request.vars.td }}&page_size=2&page_number=1", "results": [{"event_type": "smb_insights", "timestamp": "2024-01-15T12:00:10.999999+0000", "src_ip": "198.51.100.13", "src_port": 51347, "dest_ip": "203.0.113.23", "dest_port": 445, "proto": "TCP", "flow_id": 2019054435055805, "smb_insights": {"trackers": {"share": {"counters": {"\\\\dc1.example.local\\IPC$": 5}}, "status": {"counters": {"STATUS_SUCCESS": 5}}}}}]}
+  # --- Regression guard: catch-all for any other events_tail smb_insights
+  # request (e.g. missing/unmatched query params, or a cursor regression
+  # re-sending the initial-interval window instead of the persisted bookmark).
+  # Returns an oversized batch so hit_count assertions fail loudly. ---
+  - path: /rest/rules/es/events_tail/
+    methods: ['GET']
+    query_params:
+      qfilter: 'event_type:smb_insights'
+    responses:
+      - status_code: 200
+        headers:
+          Content-Type:
+            - 'application/json'
+        body: |
+          {"count": 50, "next": null, "previous": null, "results": [
+            {"event_type": "smb_insights", "timestamp": "2020-01-01T00:00:00Z", "smb_insights": {"trackers": {"status": {"counters": {"REGRESSION_GUARD_UNEXPECTED_REQUEST_SHAPE": 1}}}}},
+            {"event_type": "smb_insights", "timestamp": "2020-01-01T00:00:01Z", "smb_insights": {"trackers": {"status": {"counters": {"REGRESSION_GUARD_UNEXPECTED_REQUEST_SHAPE": 1}}}}}
+          ]}

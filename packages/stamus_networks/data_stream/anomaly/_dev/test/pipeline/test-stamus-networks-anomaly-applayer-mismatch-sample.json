@@ -1,0 +1,7 @@
+{
+    "events": [
+        {
+            "message": "{\"event_type\": \"anomaly\", \"timestamp\": \"2024-01-15T12:00:00.123456+0000\", \"src_ip\": \"198.51.100.10\", \"src_port\": 51345, \"dest_ip\": \"203.0.113.20\", \"dest_port\": 443, \"proto\": \"TCP\", \"flow_id\": 2019054435055803, \"anomaly\": {\"type\": \"applayer\", \"event\": \"APPLAYER_MISMATCH_PROTOCOL_BOTH_DIRECTIONS\", \"layer\": \"proto_detect\", \"code\": 24}}"
+        }
+    ]
+}

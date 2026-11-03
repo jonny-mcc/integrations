@@ -1,0 +1,7 @@
+{
+    "events": [
+        {
+            "message": "{\"event_type\": \"anomaly\", \"timestamp\": \"2024-01-15T12:00:05.654321+0000\", \"src_ip\": \"198.51.100.11\", \"src_port\": 51346, \"dest_ip\": \"203.0.113.21\", \"dest_port\": 53, \"proto\": \"UDP\", \"flow_id\": 2019054435055804, \"anomaly\": {\"type\": \"decode\", \"event\": \"DECODER_EVENT_UDP_HLEN_INVALID\", \"layer\": \"decode\", \"code\": 7}}"
+        }
+    ]
+}
